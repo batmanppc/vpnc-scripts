@@ -121,6 +121,9 @@ if [ -r /etc/openwrt_release ] && [ -n "$OPENWRT_INTERFACE" ]; then
 	include /lib/network
 	MODIFYRESOLVCONF=modify_resolvconf_openwrt
 	RESTORERESOLVCONF=restore_resolvconf_openwrt
+elif [ "$OS" = "Darwin" ]; then
+	MODIFYRESOLVCONF=modify_dns_darwin
+	RESTORERESOLVCONF=restore_dns_darwin
 elif [ -x /sbin/resolvconf ] && [ "$OS" != "FreeBSD" ]; then # Optional tool on Debian, Ubuntu, Gentoo - but not FreeBSD, it seems to work different
 	MODIFYRESOLVCONF=modify_resolvconf_manager
 	RESTORERESOLVCONF=restore_resolvconf_manager
@@ -410,14 +413,34 @@ nameserver $i"
 search $CISCO_DEF_DOMAIN"
 	fi
 	echo "$NEW_RESOLVCONF" > /etc/resolv.conf
+}
 
-	if [ "$OS" = "Darwin" ]; then
+restore_resolvconf_generic() {
+	if [ ! -f "$RESOLV_CONF_BACKUP" ]; then
+		return
+	fi
+	grep '^#@VPNC_GENERATED@' /etc/resolv.conf > /dev/null 2>&1 && cat "$RESOLV_CONF_BACKUP" > /etc/resolv.conf
+	rm -f -- "$RESOLV_CONF_BACKUP"
+}
+
+# === DNS handling for Darwin =====================
+
+if [ "$OS" = "Darwin" ]; then
+	PRIMARY_DEVICE=$(echo "show State:/Network/Global/IPv4" | scutil | awk '/PrimaryInterface/ { print $3; }')
+	DEFAULT_NETWORK_SERVICE=$(networksetup -listnetworkserviceorder | grep $PRIMARY_DEVICE | sed 's/.\+Port: \([^,]\+\),.\+/\1/')
+	
+	modify_dns_darwin() {
 		case "`uname -r`" in
 			# Skip for pre-10.4 systems
 			4.*|5.*|6.*|7.*)
+				modify_resolvconf_generic
 				;;
 			# 10.4 and later require use of scutil for DNS to work properly
 			*)
+				GLOBAL_DNS_DICT="$(echo show State:/Network/Global/DNS | scutil)"
+				ORIG_DOMAINNAME=$(echo "$GLOBAL_DNS_DICT" | awk '/DomainName/ { print $3; }')
+				ORIG_SERVERADDRESSES=$(echo $GLOBAL_DNS_DICT | sed 's/.\+ServerAddresses : <array> { \([^}]\+\) }.*/\1/g' | sed 's/[[:digit:]] : \([^ ]\+\)/\1 /g')
+				
 				OVERRIDE_PRIMARY=""
 				if [ -n "$CISCO_SPLIT_INC" ]; then
 					if [ $CISCO_SPLIT_INC -lt 1 ]; then
@@ -449,36 +472,43 @@ search $CISCO_DEF_DOMAIN"
 					set State:/Network/Service/$TUNDEV/IPv4
 					close
 				EOF
-				if [ -n "$CISCO_DEF_DOMAIN_ORIG" ]; then
+				if [ -n "$CISCO_DEF_DOMAIN" ]; then
 					scutil >/dev/null 2>&1 <<-EOF
 						open
 						get State:/Network/Service/$TUNDEV/DNS
-						d.add DomainName $CISCO_DEF_DOMAIN_ORIG
-						d.add SearchDomains * $CISCO_DEF_DOMAIN_ORIG
-						d.add SupplementalMatchDomains * $CISCO_DEF_DOMAIN_ORIG
+						d.add DomainName $CISCO_DEF_DOMAIN
+						d.add OriginalDomainName $ORIG_DOMAINNAME
+						d.add OriginalServerAddresses * $ORIG_SERVERADDRESSES
+						d.add SearchDomains * $CISCO_DEF_DOMAIN
 						set State:/Network/Service/$TUNDEV/DNS
 						close
 					EOF
+					
+					networksetup -setdnsservers "$DEFAULT_NETWORK_SERVICE" $INTERNAL_IP4_DNS
+					networksetup -setsearchdomains "$DEFAULT_NETWORK_SERVICE" $CISCO_DEF_DOMAIN
 				fi
 				;;
 		esac
-	fi
-}
+	}
 
-restore_resolvconf_generic() {
-	if [ ! -f "$RESOLV_CONF_BACKUP" ]; then
-		return
-	fi
-	grep '^#@VPNC_GENERATED@' /etc/resolv.conf > /dev/null 2>&1 && cat "$RESOLV_CONF_BACKUP" > /etc/resolv.conf
-	rm -f -- "$RESOLV_CONF_BACKUP"
-
-	if [ "$OS" = "Darwin" ]; then
+	restore_dns_darwin() {
 		case "`uname -r`" in
 			# Skip for pre-10.4 systems
 			4.*|5.*|6.*|7.*)
+				restore_resolvconf_generic
 				;;
 			# 10.4 and later require use of scutil for DNS to work properly
 			*)
+				TUNDEV_DNS_DICT="$(echo show State:/Network/Service/$TUNDEV/DNS | scutil)"
+				
+				if [ -n "$(echo $TUNDEV_DNS_DICT | grep -E '(OriginalDomainName|OriginalServerAddresses)')" ]; then
+					ORIG_DOMAINNAME=$(echo "$TUNDEV_DNS_DICT" | awk '/OriginalDomainName/ { print $3; }')
+					ORIG_SERVERADDRESSES=$(echo $TUNDEV_DNS_DICT | sed 's/.\+OriginalServerAddresses : <array> { \([^}]\+\) }.*/\1/g' | sed 's/[[:digit:]] : \([^ ]\+\)/\1 /g')
+					
+					networksetup -setdnsservers "$DEFAULT_NETWORK_SERVICE" $ORIG_SERVERADDRESSES
+					networksetup -setsearchdomains "$DEFAULT_NETWORK_SERVICE" $ORIG_DOMAINNAME
+				fi
+				
 				scutil >/dev/null 2>&1 <<-EOF
 					open
 					remove State:/Network/Service/$TUNDEV/IPv4
@@ -487,8 +517,9 @@ restore_resolvconf_generic() {
 				EOF
 				;;
 		esac
-	fi
-}
+	}
+fi
+
 # === resolv.conf handling via /sbin/netconfig (Suse 11.1) =====================
 
 # Suse provides a script that modifies resolv.conf. Use it because it will
