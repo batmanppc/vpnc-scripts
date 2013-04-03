@@ -1,4 +1,4 @@
-#!/bin/sh -x
+#!/bin/sh
 #
 # Originally part of vpnc source code:
 # © 2005-2012 Maurice Massar, Jörg Mayer, Antonio Borneo et al.
@@ -119,23 +119,23 @@ fi
 if [ -r /etc/openwrt_release ] && [ -n "$OPENWRT_INTERFACE" ]; then
         . /etc/functions.sh
 	include /lib/network
-	MODIFYRESOLVCONF=modify_resolvconf_openwrt
-	RESTORERESOLVCONF=restore_resolvconf_openwrt
+	MODIFYDNS=modify_resolvconf_openwrt
+	RESTOREDNS=restore_resolvconf_openwrt
 elif [ "$OS" = "Darwin" ]; then
-	MODIFYRESOLVCONF=modify_dns_darwin
-	RESTORERESOLVCONF=restore_dns_darwin
+	MODIFYDNS=modify_dns_darwin
+	RESTOREDNS=restore_dns_darwin
 elif [ -x /sbin/resolvconf ] && [ "$OS" != "FreeBSD" ]; then # Optional tool on Debian, Ubuntu, Gentoo - but not FreeBSD, it seems to work different
-	MODIFYRESOLVCONF=modify_resolvconf_manager
-	RESTORERESOLVCONF=restore_resolvconf_manager
+	MODIFYDNS=modify_resolvconf_manager
+	RESTOREDNS=restore_resolvconf_manager
 elif [ -x /sbin/netconfig ]; then # tool on Suse after 11.1
-	MODIFYRESOLVCONF=modify_resolvconf_suse_netconfig
-	RESTORERESOLVCONF=restore_resolvconf_suse_netconfig
+	MODIFYDNS=modify_resolvconf_suse_netconfig
+	RESTOREDNS=restore_resolvconf_suse_netconfig
 elif [ -x /sbin/modify_resolvconf ]; then # Mandatory tool on Suse earlier than 11.1
-	MODIFYRESOLVCONF=modify_resolvconf_suse
-	RESTORERESOLVCONF=restore_resolvconf_suse
+	MODIFYDNS=modify_resolvconf_suse
+	RESTOREDNS=restore_resolvconf_suse
 else # Generic for any OS
-	MODIFYRESOLVCONF=modify_resolvconf_generic
-	RESTORERESOLVCONF=restore_resolvconf_generic
+	MODIFYDNS=modify_resolvconf_generic
+	RESTOREDNS=restore_resolvconf_generic
 fi
 
 
@@ -736,7 +736,7 @@ do_connect() {
 	fi
 
 	if [ -n "$INTERNAL_IP4_DNS" ]; then
-		$MODIFYRESOLVCONF
+		$MODIFYDNS
 	fi
 }
 
@@ -784,7 +784,7 @@ do_disconnect() {
 	del_vpngateway_route
 
 	if [ -n "$INTERNAL_IP4_DNS" ]; then
-		$RESTORERESOLVCONF
+		$RESTOREDNS
 	fi
 	destroy_tun_device
 }
