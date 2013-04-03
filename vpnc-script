@@ -427,7 +427,7 @@ restore_resolvconf_generic() {
 
 if [ "$OS" = "Darwin" ]; then
 	PRIMARY_DEVICE=$(echo "show State:/Network/Global/IPv4" | scutil | awk '/PrimaryInterface/ { print $3; }')
-	DEFAULT_NETWORK_SERVICE=$(networksetup -listnetworkserviceorder | grep $PRIMARY_DEVICE | sed 's/.\+Port: \([^,]\+\),.\+/\1/')
+	DEFAULT_NETWORK_SERVICE=$(/usr/sbin/networksetup -listnetworkserviceorder | grep $PRIMARY_DEVICE | sed 's/.\+Port: \([^,]\+\),.\+/\1/')
 	
 	modify_dns_darwin() {
 		case "`uname -r`" in
@@ -440,6 +440,19 @@ if [ "$OS" = "Darwin" ]; then
 				GLOBAL_DNS_DICT="$(echo show State:/Network/Global/DNS | scutil)"
 				ORIG_DOMAINNAME=$(echo "$GLOBAL_DNS_DICT" | awk '/DomainName/ { print $3; }')
 				ORIG_SERVERADDRESSES=$(echo $GLOBAL_DNS_DICT | sed 's/.\+ServerAddresses : <array> { \([^}]\+\) }.*/\1/g' | sed 's/[[:digit:]] : \([^ ]\+\)/\1 /g')
+				
+				ORIG_DOMAINNAME=$(/usr/sbin/networksetup -getsearchdomains "$DEFAULT_NETWORK_SERVICE")
+				ORIG_SERVERADDRESSES=$(/usr/sbin/networksetup -getdnsservers "$DEFAULT_NETWORK_SERVICE")
+				
+				if [ -n "$(echo $ORIG_DOMAINNAME | grep "There aren't any Search Domains set")" ]
+				then
+					ORIG_DOMAINNAME=empty
+				fi
+				
+				if [ -n "$(echo $ORIG_SERVERADDRESSES | grep "There aren't any DNS Servers set")" ]
+				then
+					ORIG_SERVERADDRESSES=empty
+				fi
 				
 				OVERRIDE_PRIMARY=""
 				if [ -n "$CISCO_SPLIT_INC" ]; then
@@ -484,8 +497,8 @@ if [ "$OS" = "Darwin" ]; then
 						close
 					EOF
 					
-					networksetup -setdnsservers "$DEFAULT_NETWORK_SERVICE" $INTERNAL_IP4_DNS
-					networksetup -setsearchdomains "$DEFAULT_NETWORK_SERVICE" $CISCO_DEF_DOMAIN
+					/usr/sbin/networksetup -setdnsservers "$DEFAULT_NETWORK_SERVICE" $INTERNAL_IP4_DNS
+					/usr/sbin/networksetup -setsearchdomains "$DEFAULT_NETWORK_SERVICE" $CISCO_DEF_DOMAIN
 				fi
 				;;
 		esac
@@ -505,8 +518,8 @@ if [ "$OS" = "Darwin" ]; then
 					ORIG_DOMAINNAME=$(echo "$TUNDEV_DNS_DICT" | awk '/OriginalDomainName/ { print $3; }')
 					ORIG_SERVERADDRESSES=$(echo $TUNDEV_DNS_DICT | sed 's/.\+OriginalServerAddresses : <array> { \([^}]\+\) }.*/\1/g' | sed 's/[[:digit:]] : \([^ ]\+\)/\1 /g')
 					
-					networksetup -setdnsservers "$DEFAULT_NETWORK_SERVICE" $ORIG_SERVERADDRESSES
-					networksetup -setsearchdomains "$DEFAULT_NETWORK_SERVICE" $ORIG_DOMAINNAME
+					/usr/sbin/networksetup -setdnsservers "$DEFAULT_NETWORK_SERVICE" $ORIG_SERVERADDRESSES
+					/usr/sbin/networksetup -setsearchdomains "$DEFAULT_NETWORK_SERVICE" $ORIG_DOMAINNAME
 				fi
 				
 				scutil >/dev/null 2>&1 <<-EOF
