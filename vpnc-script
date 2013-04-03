@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -x
 #
 # Originally part of vpnc source code:
 # © 2005-2012 Maurice Massar, Jörg Mayer, Antonio Borneo et al.
@@ -485,7 +485,7 @@ if [ "$OS" = "Darwin" ]; then
 					set State:/Network/Service/$TUNDEV/IPv4
 					close
 				EOF
-				if [ -n "$CISCO_DEF_DOMAIN" ]; then
+				if [ -n "$CISCO_DEF_DOMAIN" -a -z "$CISCO_SPLIT_DNS" ]; then
 					scutil >/dev/null 2>&1 <<-EOF
 						open
 						get State:/Network/Service/$TUNDEV/DNS
@@ -499,6 +499,26 @@ if [ "$OS" = "Darwin" ]; then
 					
 					/usr/sbin/networksetup -setdnsservers "$DEFAULT_NETWORK_SERVICE" $INTERNAL_IP4_DNS
 					/usr/sbin/networksetup -setsearchdomains "$DEFAULT_NETWORK_SERVICE" $CISCO_DEF_DOMAIN
+				fi
+				
+				if [ -n "$CISCO_SPLIT_DNS" ]; then
+					for SPLIT_DOMAIN in $CISCO_DEF_DOMAIN ${CISCO_SPLIT_DNS//,/ }; do
+						if [ -z "${CISCO_DEF_DOMAIN}" -o -z "$(expr match $SPLIT_DOMAIN ".\+\.\(${CISCO_DEF_DOMAIN}\)\$")" ]; then
+							SUPPLEMENTAL_DOMAINS="$SUPPLEMENTAL_DOMAINS $SPLIT_DOMAIN"
+						fi
+					done
+					
+					SUPPLEMENTAL_DOMAINS="d.add SupplementalMatchDomains * $SUPPLEMENTAL_DOMAINS"
+					
+					scutil >/dev/null 2>&1 <<-EOF
+						open
+						get State:/Network/Service/$TUNDEV/DNS
+						d.add DomainName $CISCO_DEF_DOMAIN
+						d.add SearchDomains * $CISCO_DEF_DOMAIN
+						$SUPPLEMENTAL_DOMAINS
+						set State:/Network/Service/$TUNDEV/DNS
+						close
+					EOF
 				fi
 				;;
 		esac
