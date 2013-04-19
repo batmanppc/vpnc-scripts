@@ -427,7 +427,7 @@ restore_resolvconf_generic() {
 
 if [ "$OS" = "Darwin" ]; then
 	PRIMARY_DEVICE=$(echo "show State:/Network/Global/IPv4" | scutil | awk '/PrimaryInterface/ { print $3; }')
-	DEFAULT_NETWORK_SERVICE=$(/usr/sbin/networksetup -listnetworkserviceorder | grep $PRIMARY_DEVICE | sed 's/.\+Port: \([^,]\+\),.\+/\1/')
+	DEFAULT_NETWORK_SERVICE=$(/usr/sbin/networksetup -listnetworkserviceorder | grep $PRIMARY_DEVICE | sed 's/.*Port: \([^,]*\),.*/\1/')
 	
 	modify_dns_darwin() {
 		case "`uname -r`" in
@@ -503,7 +503,7 @@ if [ "$OS" = "Darwin" ]; then
 				
 				if [ -n "$CISCO_SPLIT_DNS" ]; then
 					for SPLIT_DOMAIN in $CISCO_DEF_DOMAIN ${CISCO_SPLIT_DNS//,/ }; do
-						if [ -z "${CISCO_DEF_DOMAIN}" -o -z "$(expr match $SPLIT_DOMAIN ".\+\.\(${CISCO_DEF_DOMAIN}\)\$")" ]; then
+						if [ -z "${CISCO_DEF_DOMAIN}" ] || [[ ! "${SPLIT_DOMAIN}" =~  \.${CISCO_DEF_DOMAIN}$ ]]; then
 							SUPPLEMENTAL_DOMAINS="$SUPPLEMENTAL_DOMAINS $SPLIT_DOMAIN"
 						fi
 					done
